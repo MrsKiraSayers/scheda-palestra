@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scheda Palestra</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Palestra">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#0f1115;--card:#181b22;--card2:#20242d;--tx:#eef0f4;--mut:#8b93a3;--ac:#4ade80;--ac2:#22c55e;--dan:#f87171;--bd:#2a2f3a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-apple-system,sans-serif;padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(84px + env(safe-area-inset-bottom)) env(safe-area-inset-left);overscroll-behavior-y:none}
+header{padding:16px 16px 4px;font-size:22px;font-weight:700}
+main{padding:8px 12px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;color:var(--mut);padding:14px 4px;font-size:14px}
+nav button.on{color:var(--ac);font-weight:700}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin:10px 0}
+.row{display:flex;gap:8px;align-items:center}
+.grow{flex:1;min-width:0}
+h3{margin:0;font-size:17px}
+.mut{color:var(--mut);font-size:13px}
+button{font-family:inherit}
+button.b{background:var(--ac2);color:#06210f;border:0;border-radius:10px;padding:10px 14px;font-weight:700;font-size:15px}
+button.g{background:var(--card2);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:9px 12px;font-size:14px}
+button.x{background:none;border:0;color:var(--dan);font-size:14px;padding:6px}
+input,select{background:var(--card2);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:16px;width:100%;font-family:inherit}
+input.n{text-align:center;padding:10px 4px}
+.set{display:grid;grid-template-columns:28px 1fr 1fr 40px;gap:6px;align-items:center;margin:6px 0}
+.set .i{color:var(--mut);text-align:center}
+.chk{height:40px;border-radius:10px;border:1px solid var(--bd);background:var(--card2);color:var(--mut);font-size:18px}
+.chk.on{background:var(--ac2);color:#06210f;border-color:var(--ac2)}
+a.v{color:var(--ac);text-decoration:none;font-size:14px;white-space:nowrap}
+.done{border-color:var(--ac2)}
+.hint{color:var(--mut);font-size:12px;text-align:center}
+.tag{display:inline-block;background:var(--card2);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--mut);white-space:nowrap}
+.ok{color:var(--ac);font-size:13px}
+.err{color:var(--dan);font-size:13px}
+.empty{text-align:center;color:var(--mut);padding:40px 16px}
+details summary{cursor:pointer;list-style:none}
+details summary::-webkit-details-marker{display:none}
+</style>
+</head>
+<body>
+<header id="hd">Scheda Palestra</header>
+<main id="app"></main>
+<nav>
+  <button data-t="oggi" class="on">Oggi</button>
+  <button data-t="scheda">Scheda</button>
+  <button data-t="storico">Storico</button>
+</nav>
+<script src="xlsx.full.min.js"></script>
+<script src="parser.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 9);
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+
+// stato: { plan:[{id,name,exercises:[{id,name,sets,reps,note,video}]}], logs:{ "YYYY-MM-DD": { exId:{name,sets:[{kg,reps,done}]} } }, lastDay }
+let S = { plan: [], logs: {}, lastDay: null };
+let tab = 'oggi', curDay = null, dateSel = today(), msg = null;
+const LS = 'gym_state_v1';
+
+function load(){ try { const r = localStorage.getItem(LS); if (r) S = Object.assign(S, JSON.parse(r)); } catch(e){} }
+function save(){ try { localStorage.setItem(LS, JSON.stringify(S)); } catch(e){ msg = { c: 'err', t: 'Salvataggio non riuscito: spazio esaurito?' }; } }
+
+function ytLink(ex){ return ex.video || ('https://www.youtube.com/results?search_query=' + encodeURIComponent(ex.name + ' esecuzione corretta')); }
+function lastLog(exId, before){
+  const ds = Object.keys(S.logs).filter(d => d < before && S.logs[d][exId] && S.logs[d][exId].sets.some(s => s.kg || s.reps)).sort();
+  const d = ds[ds.length - 1];
+  return d ? { date: d, ...S.logs[d][exId] } : null;
+}
+function getDay(){ return S.plan.find(d => d.id === curDay) || S.plan[0]; }
+
+function render(){
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === tab));
+  $('#hd').textContent = { oggi: 'Allenamento di oggi', scheda: 'La tua scheda', storico: 'Storico pesi' }[tab];
+  $('#app').innerHTML = { oggi: vOggi, scheda: vScheda, storico: vStorico }[tab]();
+}
+document.querySelector('nav').addEventListener('click', e => { const t = e.target.dataset.t; if (t) { tab = t; msg = null; render(); window.scrollTo(0, 0); } });
+
+// ---- oggi
+function vOggi(){
+  if (!S.plan.length) return `<div class="empty">Nessuna scheda ancora.<br><br><button class="b" onclick="tab='scheda';render()">Importa la scheda</button></div>`;
+  if (!curDay || !S.plan.find(d => d.id === curDay)) curDay = S.lastDay && S.plan.find(d => d.id === S.lastDay) ? S.lastDay : S.plan[0].id;
+  const day = getDay();
+  const log = S.logs[dateSel] || {};
+  const opts = S.plan.map(d => `<option value="${d.id}" ${d.id === day.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
+  let h = `<div class="row"><select class="grow" onchange="curDay=this.value;S.lastDay=curDay;save();render()">${opts}</select>
+    <input type="date" style="width:150px" value="${dateSel}" onchange="dateSel=this.value||today();render()"></div>`;
+  if (!day.exercises.length) h += `<div class="empty">Nessun esercizio in questo giorno.</div>`;
+  day.exercises.forEach(ex => {
+    const l = log[ex.id];
+    const prev = lastLog(ex.id, dateSel);
+    const sets = l ? l.sets : Array.from({ length: parseInt(ex.sets) || 3 }, () => ({ kg: '', reps: '', done: false }));
+    const allDone = l && l.sets.length && l.sets.every(s => s.done);
+    h += `<div class="card ${allDone ? 'done' : ''}">
+      <div class="row"><div class="grow"><h3>${esc(ex.name)}</h3>
+        <div class="mut">${esc(ex.sets || '')}${ex.reps ? ' × ' + esc(ex.reps) : ''}${ex.note ? ' · ' + esc(ex.note) : ''}</div></div>
+        <a class="v" href="${esc(ytLink(ex))}" target="_blank" rel="noopener">▶ Video</a></div>
+      ${prev ? `<div class="mut" style="margin-top:6px">Ultima volta (${prev.date.slice(8)}/${prev.date.slice(5,7)}): ${prev.sets.filter(s=>s.kg||s.reps).map(s => esc(s.kg||'–') + 'kg×' + esc(s.reps||'–')).join(' · ')}</div>` : ''}
+      <div class="hint" style="margin-top:8px">serie · kg · ripetizioni</div>`;
+    sets.forEach((s, i) => {
+      const ph = prev && prev.sets[i] ? prev.sets[i] : {};
+      h += `<div class="set"><div class="i">${i + 1}</div>
+        <input class="n" inputmode="decimal" placeholder="${esc(ph.kg || 'kg')}" value="${esc(s.kg)}" onchange="setVal('${ex.id}',${i},'kg',this.value)">
+        <input class="n" inputmode="numeric" placeholder="${esc(ph.reps || 'rip')}" value="${esc(s.reps)}" onchange="setVal('${ex.id}',${i},'reps',this.value)">
+        <button class="chk ${s.done ? 'on' : ''}" onclick="toggleDone('${ex.id}',${i})">✓</button></div>`;
+    });
+    h += `<div class="row" style="margin-top:6px"><button class="g" onclick="addSet('${ex.id}')">+ serie</button>
+      ${sets.length > 1 ? `<button class="x" onclick="delSet('${ex.id}')">− serie</button>` : ''}</div></div>`;
+  });
+  return h;
+}
+function ensureLog(exId){
+  const ex = getDay().exercises.find(e => e.id === exId);
+  const log = (S.logs[dateSel] = S.logs[dateSel] || {});
+  if (!log[exId]) log[exId] = { name: ex.name, sets: Array.from({ length: parseInt(ex.sets) || 3 }, () => ({ kg: '', reps: '', done: false })) };
+  return log[exId];
+}
+function setVal(exId, i, k, v){ ensureLog(exId).sets[i][k] = v.trim().replace(',', '.'); save(); }
+function toggleDone(exId, i){ const s = ensureLog(exId).sets[i]; s.done = !s.done; save(); render(); }
+function addSet(exId){ ensureLog(exId).sets.push({ kg: '', reps: '', done: false }); save(); render(); }
+function delSet(exId){ ensureLog(exId).sets.pop(); save(); render(); }
+
+// ---- scheda
+function vScheda(){
+  let h = `<div class="card"><h3>Importa la scheda</h3>
+    <div class="mut" style="margin:4px 0 10px">Carica il file Excel (.xlsx, .xls) o CSV con giorni ed esercizi.</div>
+    <input type="file" id="xl" accept=".xlsx,.xls,.csv" style="display:none" onchange="importExcel(this.files[0])">
+    <button class="b" onclick="document.getElementById('xl').click()">📄 Scegli Excel</button>
+    ${msg ? `<div class="${msg.c}" style="margin-top:8px">${esc(msg.t)}</div>` : ''}</div>`;
+  S.plan.forEach(d => {
+    h += `<div class="card"><div class="row"><input class="grow" value="${esc(d.name)}" onchange="renameDay('${d.id}',this.value)">
+      <button class="x" onclick="delDay('${d.id}')">Elimina</button></div>`;
+    d.exercises.forEach(ex => {
+      h += `<details style="margin-top:8px;border-top:1px solid var(--bd);padding-top:8px"><summary class="row"><div class="grow"><b>${esc(ex.name)}</b>
+        <div class="mut">${esc(ex.sets || '')}${ex.reps ? ' × ' + esc(ex.reps) : ''}</div></div><span class="mut">modifica</span></summary>
+        <div style="display:grid;gap:6px;margin-top:8px">
+        <input value="${esc(ex.name)}" placeholder="Nome" onchange="editEx('${d.id}','${ex.id}','name',this.value)">
+        <div class="row"><input value="${esc(ex.sets)}" placeholder="Serie" inputmode="numeric" onchange="editEx('${d.id}','${ex.id}','sets',this.value)">
+        <input value="${esc(ex.reps)}" placeholder="Ripetizioni" onchange="editEx('${d.id}','${ex.id}','reps',this.value)"></div>
+        <input value="${esc(ex.note)}" placeholder="Note (recupero, tempo…)" onchange="editEx('${d.id}','${ex.id}','note',this.value)">
+        <input value="${esc(ex.video)}" placeholder="Link video (vuoto = ricerca YouTube)" inputmode="url" onchange="editEx('${d.id}','${ex.id}','video',this.value)">
+        <button class="x" onclick="delEx('${d.id}','${ex.id}')">Rimuovi esercizio</button></div></details>`;
+    });
+    h += `<button class="g" style="margin-top:10px" onclick="addEx('${d.id}')">+ Esercizio</button></div>`;
+  });
+  h += `<button class="g" onclick="addDay()">+ Giorno</button>
+    <div class="card"><h3>Backup</h3>
+    <div class="mut" style="margin:4px 0 10px">I dati stanno solo su questo telefono. Esporta ogni tanto una copia.</div>
+    <input type="file" id="bk" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])">
+    <div class="row"><button class="g" onclick="exportBackup()">Esporta</button><button class="g" onclick="document.getElementById('bk').click()">Ripristina</button></div></div>`;
+  return h;
+}
+function addDay(){ S.plan.push({ id: uid(), name: 'Giorno ' + (S.plan.length + 1), exercises: [] }); save(); render(); }
+function renameDay(id, v){ S.plan.find(d => d.id === id).name = v; save(); }
+function delDay(id){
+  const d = S.plan.find(d => d.id === id);
+  if (!confirm('Eliminare "' + d.name + '"? Lo storico dei pesi resta.')) return;
+  S.plan = S.plan.filter(d => d.id !== id); if (curDay === id) curDay = null; save(); render();
+}
+function addEx(did){ S.plan.find(d => d.id === did).exercises.push({ id: uid(), name: 'Nuovo esercizio', sets: '3', reps: '10', note: '', video: '' }); save(); render(); }
+function editEx(did, eid, k, v){ S.plan.find(d => d.id === did).exercises.find(e => e.id === eid)[k] = v.trim(); save(); }
+function delEx(did, eid){ const d = S.plan.find(d => d.id === did); d.exercises = d.exercises.filter(e => e.id !== eid); save(); render(); }
+
+async function importExcel(file){
+  if (!file) return;
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const days = parseWorkbook(XLSX, wb);
+    if (!days.length) throw new Error('vuoto');
+    if (S.plan.length && confirm('Sostituire la scheda attuale? (Annulla = aggiungi in coda)\nLo storico dei pesi resta.')) S.plan = [];
+    days.forEach(d => S.plan.push({ id: uid(), name: d.name, exercises: d.exercises.map(e => ({ id: uid(), name: e.name, sets: e.sets, reps: e.reps, note: e.note, video: '' })) }));
+    curDay = null; save();
+    const n = days.reduce((a, d) => a + d.exercises.length, 0);
+    msg = { c: 'ok', t: `Importati ${days.length} giorni e ${n} esercizi. Controlla e correggi se serve.` };
+  } catch(e){
+    msg = { c: 'err', t: 'Non ho trovato esercizi nel file. Controlla che sia .xlsx o .csv.' };
+  }
+  render();
+}
+
+async function exportBackup(){
+  const name = 'palestra-backup-' + today() + '.json';
+  const blob = new Blob([JSON.stringify(S)], { type: 'application/json' });
+  try {
+    const f = new File([blob], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f] }); return; }
+  } catch(e){ if (e.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+}
+async function importBackup(file){
+  if (!file) return;
+  try {
+    const j = JSON.parse(await file.text());
+    if (!Array.isArray(j.plan) || typeof j.logs !== 'object') throw new Error('formato');
+    if (!confirm('Sostituire tutti i dati con questo backup?')) return;
+    S = { plan: j.plan, logs: j.logs || {}, lastDay: j.lastDay || null }; curDay = null; save();
+    msg = { c: 'ok', t: 'Backup ripristinato.' };
+  } catch(e){ msg = { c: 'err', t: 'File di backup non valido.' }; }
+  render();
+}
+
+// ---- storico
+function vStorico(){
+  const dates = Object.keys(S.logs).sort().reverse();
+  const byEx = {};
+  dates.forEach(d => Object.values(S.logs[d]).forEach(x => { const sets = x.sets.filter(s => s.kg || s.reps); if (sets.length) (byEx[x.name] = byEx[x.name] || []).push({ d, sets }); }));
+  const names = Object.keys(byEx).sort((a, b) => a.localeCompare(b, 'it'));
+  if (!names.length) return `<div class="empty">Nessun peso registrato.</div>`;
+  return names.map(name => {
+    const arr = byEx[name];
+    const best = Math.max(0, ...arr.flatMap(x => x.sets.map(s => parseFloat(s.kg) || 0)));
+    return `<details class="card"><summary class="row"><div class="grow"><h3>${esc(name)}</h3><div class="mut">${arr.length} ${arr.length === 1 ? 'sessione' : 'sessioni'}</div></div>
+      <span class="tag">max ${best} kg</span></summary>
+      ${arr.map(x => `<div style="margin-top:8px"><span class="mut">${x.d.slice(8)}/${x.d.slice(5,7)}/${x.d.slice(0,4)}</span><br>${x.sets.map(s => `${esc(s.kg || '–')}kg×${esc(s.reps || '–')}`).join(' · ')}</div>`).join('')}</details>`;
+  }).join('');
+}
+
+load(); render();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+</script>
+</body>
+</html>
